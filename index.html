@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Dashboard Cybersécurité</title>
+    <title>Dashboard Cybersécurité V2</title>
     <script src="https://d3js.org/d3.v7.min.js"></script>
     <style>
         body {
@@ -11,45 +11,79 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            background-color: #f0f0f0; /* Fond légèrement gris */
         }
         .chart-container {
             margin-bottom: 40px;
             padding: 20px;
             border: 1px solid #ccc;
             border-radius: 8px;
-            background-color: #f9f9f9;
+            background-color: #ffffff; /* Fond blanc pour les graphiques */
+            box-shadow: 2px 2px 5px rgba(0,0,0,0.1); /* Ombre légère */
+        }
+        h1 {
+            color: #333;
         }
         h2 {
             text-align: center;
             margin-top: 0;
+            color: #555;
         }
         .chart {
-            width: 600px; /* Ajuste selon tes besoins */
-            height: 400px; /* Ajuste selon tes besoins */
+            /* Dimensions définies en JS mais on peut mettre min-width/height ici */
+            min-width: 600px;
+            min-height: 400px;
         }
-        /* Style pour les barres et axes (optionnel) */
+        /* Styles pour les éléments D3 */
         .bar {
             fill: steelblue;
+            transition: fill 0.2s ease-in-out; /* Effet au survol */
+        }
+        .bar:hover {
+            fill: orange;
         }
         .axis path,
         .axis line {
             fill: none;
-            stroke: #000;
+            stroke: #333; /* Axes plus sombres */
             shape-rendering: crispEdges;
         }
         .axis text {
             font-size: 10px;
+            fill: #333;
         }
         .line {
           fill: none;
           stroke: steelblue;
           stroke-width: 2px;
         }
+        .dot {
+            fill: red;
+            stroke: #fff; /* Contour blanc pour les points */
+        }
+        .legend {
+            font-size: 12px;
+        }
+        .legend rect {
+            stroke-width: 1px;
+            stroke: #ccc;
+        }
+        .tooltip { /* Style pour un tooltip potentiel (non implémenté ici) */
+            position: absolute;
+            text-align: center;
+            padding: 8px;
+            font: 12px sans-serif;
+            background: lightsteelblue;
+            border: 0px;
+            border-radius: 8px;
+            pointer-events: none;
+            opacity: 0;
+        }
     </style>
 </head>
 <body>
 
-    <h1>Dashboard d'Attaques de Cybersécurité</h1>
+    <h1>Dashboard d'Attaques de Cybersécurité V2</h1>
 
     <div class="chart-container">
         <h2>Répartition par Type d'Attaque</h2>
@@ -66,80 +100,98 @@
         <div id="attacks-over-time-chart" class="chart"></div>
     </div>
 
+    <div class="chart-container">
+        <h2>Type d'Attaque vs Gravité</h2>
+        <div id="type-severity-chart" class="chart"></div>
+    </div>
+
+    <div class="chart-container">
+        <h2>Attaques par Région (extrait de Geo-location)</h2>
+        <div id="region-chart" class="chart"></div>
+    </div>
+
     <script>
-        // Dimensions et marges communes pour les graphiques
-        const margin = {top: 20, right: 30, bottom: 60, left: 60}; // Augmentation bottom/left pour les labels
-        const width = 600 - margin.left - margin.right;
-        const height = 400 - margin.top - margin.bottom;
+        // Dimensions et marges communes
+        const margin = {top: 30, right: 30, bottom: 70, left: 60}; // Augmentation bottom pour labels
+        const containerWidth = 650; // Largeur du conteneur
+        const containerHeight = 450; // Hauteur du conteneur
+        const width = containerWidth - margin.left - margin.right;
+        const height = containerHeight - margin.top - margin.bottom;
 
         // --- Chargement des données ---
-        // IMPORTANT: Assure-toi que le fichier CSV est accessible !
-        // Mets-le dans le même dossier que ce fichier HTML ou ajuste le chemin.
         d3.csv("cybersecurity_attacks.csv").then(data => {
-            console.log("Données chargées:", data); // Vérifie les données dans la console
+            console.log("Données brutes chargées:", data.length, "lignes");
 
-            // --- Prétraitement (si nécessaire) ---
-            // Convertir les timestamps en objets Date JS
-            const parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S"); // Ajuste ce format si besoin !
+            // --- Prétraitement ---
+            const parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S");
+            const validData = [];
+
             data.forEach(d => {
-                // Gère les erreurs de parsing potentielles
-                const parsedDate = parseTime(d['Timestamp']);
-                d.Timestamp = parsedDate ? parsedDate : null; // Met null si le parsing échoue
-                // Convertir Packet Length en nombre (si nécessaire pour d'autres graphes)
-                d['Packet Length'] = +d['Packet Length'];
+                const timestamp = parseTime(d['Timestamp']);
+                const attackType = d['Attack Type'] ? d['Attack Type'].trim() : null;
+                const severityLevel = d['Severity Level'] ? d['Severity Level'].trim() : null;
+                const geoLocation = d['Geo-location Data'] ? d['Geo-location Data'].trim() : null;
+
+                // Filtrage plus robuste
+                if (timestamp && attackType && severityLevel && geoLocation) {
+                    // Extrait la région (partie après la virgule, ou la chaîne entière si pas de virgule)
+                    let region = geoLocation;
+                    if (geoLocation.includes(',')) {
+                        const parts = geoLocation.split(',');
+                        region = parts.length > 1 ? parts[1].trim() : parts[0].trim(); // Prend la partie après la virgule, ou la ville si pas d'état
+                    }
+                     if (!region) region = "Inconnue"; // Met une valeur par défaut si vide après trim
+
+                    validData.push({
+                        Timestamp: timestamp,
+                        'Attack Type': attackType,
+                        'Severity Level': severityLevel,
+                        'Anomaly Scores': +d['Anomaly Scores'] || 0, // Met 0 si invalide/manquant
+                        'Packet Length': +d['Packet Length'] || 0,
+                        'Protocol': d['Protocol'] ? d['Protocol'].trim() : 'Inconnu',
+                        'Action Taken': d['Action Taken'] ? d['Action Taken'].trim() : 'Inconnu',
+                        'Geo-location Data': geoLocation, // Garde l'original aussi
+                        'Region': region // Ajoute la région extraite
+                    });
+                }
             });
 
-            // Filtrer les données invalides si nécessaire (ex: Timestamp null)
-            const validData = data.filter(d => d.Timestamp !== null && d['Attack Type'] && d['Severity Level']);
-             if (validData.length !== data.length) {
-                console.warn("Certaines lignes de données ont été filtrées car invalides (Timestamp, Attack Type ou Severity Level manquants/incorrects).");
-            }
+            console.log("Données valides après filtrage/traitement:", validData.length, "lignes");
+             if (validData.length === 0) {
+                 throw new Error("Aucune donnée valide trouvée après traitement. Vérifiez le format du CSV et les noms de colonnes.");
+             }
 
-            // --- Graphique 1: Répartition par Type d'Attaque (Barres) ---
-            createBarChart(
-                validData,
-                'Attack Type',
-                '#attack-type-chart',
-                'Type d\'Attaque',
-                'Nombre d\'attaques'
-            );
 
-            // --- Graphique 2: Répartition par Niveau de Gravité (Barres) ---
-            createBarChart(
-                validData,
-                'Severity Level',
-                '#severity-level-chart',
-                'Niveau de Gravité',
-                'Nombre d\'attaques'
-            );
+            // --- Création des graphiques ---
+            // (Les fonctions createBarChart et createLineChart sont supposées définies comme avant)
+            createBarChart(validData, 'Attack Type', '#attack-type-chart', 'Type d\'Attaque', 'Nombre');
+            createBarChart(validData, 'Severity Level', '#severity-level-chart', 'Niveau de Gravité', 'Nombre');
+            createLineChart(validData, '#attacks-over-time-chart', 'Date', 'Nombre');
 
-             // --- Graphique 3: Attaques au Fil du Temps (Ligne) ---
-            createLineChart(validData, '#attacks-over-time-chart');
+            // NOUVEAU: Appel des nouvelles fonctions
+            createGroupedBarChart(validData, '#type-severity-chart');
+            createRegionBarChart(validData, '#region-chart'); // Utilise la fonction pour les régions
 
         }).catch(error => {
             console.error("Erreur lors du chargement ou du traitement du CSV:", error);
-            // Affiche un message d'erreur sur la page
-             d3.select("body").append("p")
+            d3.select("body").append("p")
                 .style("color", "red")
-                .text("Impossible de charger les données. Vérifiez le chemin du fichier CSV et la console pour les erreurs.");
+                .text(`Erreur: ${error.message}. Vérifiez le chemin/format du fichier CSV et la console.`);
         });
 
-
-        // --- Fonction pour créer un graphique à barres générique ---
+        // --- Fonction générique pour graphique à barres simple ---
         function createBarChart(data, column, selector, xLabel, yLabel) {
-            // Compter les occurrences pour la colonne spécifiée
             const counts = d3.rollup(data, v => v.length, d => d[column]);
-            const countsArray = Array.from(counts, ([key, value]) => ({key, value}));
-            countsArray.sort((a, b) => d3.descending(a.value, b.value)); // Trier par valeur décroissante
+            const countsArray = Array.from(counts, ([key, value]) => ({key, value}))
+                                   .sort((a, b) => d3.descending(a.value, b.value));
 
             const svg = d3.select(selector)
                 .append("svg")
-                    .attr("width", width + margin.left + margin.right)
-                    .attr("height", height + margin.top + margin.bottom)
+                    .attr("width", containerWidth)
+                    .attr("height", containerHeight)
                 .append("g")
                     .attr("transform", `translate(${margin.left},${margin.top})`);
 
-            // Échelle X (Catégories)
             const x = d3.scaleBand()
                 .range([0, width])
                 .domain(countsArray.map(d => d.key))
@@ -148,36 +200,31 @@
             svg.append("g")
                 .attr("transform", `translate(0,${height})`)
                 .call(d3.axisBottom(x))
-                .selectAll("text") // Pour faire pivoter les labels si trop longs
+                .selectAll("text")
                     .attr("transform", "translate(-10,0)rotate(-45)")
                     .style("text-anchor", "end");
 
-             // Label Axe X
-            svg.append("text")
-                .attr("text-anchor", "end")
-                .attr("x", width / 2 + margin.left / 3) // Ajuste la position
-                .attr("y", height + margin.top + 35) // Ajuste la position sous l'axe
+            svg.append("text") // Label X
+                .attr("text-anchor", "middle")
+                .attr("x", width / 2)
+                .attr("y", height + margin.top + 35) // Ajuste position
                 .text(xLabel);
 
-
-            // Échelle Y (Quantité)
             const y = d3.scaleLinear()
-                .domain([0, d3.max(countsArray, d => d.value)])
+                .domain([0, d3.max(countsArray, d => d.value) || 1]) // Assure un domaine min de 1
+                .nice() // Arrondit le domaine max
                 .range([height, 0]);
 
             svg.append("g")
                 .call(d3.axisLeft(y));
 
-            // Label Axe Y
-            svg.append("text")
-                .attr("text-anchor", "end")
+             svg.append("text") // Label Y
+                .attr("text-anchor", "middle")
                 .attr("transform", "rotate(-90)")
-                .attr("y", -margin.left + 20) // Ajuste la position à gauche de l'axe
+                .attr("y", -margin.left + 15) // Ajuste position
                 .attr("x", -height / 2)
-                .text(yLabel)
+                .text(yLabel);
 
-
-            // Dessiner les barres
             svg.selectAll(".bar")
                 .data(countsArray)
                 .enter()
@@ -187,82 +234,75 @@
                     .attr("y", d => y(d.value))
                     .attr("width", x.bandwidth())
                     .attr("height", d => height - y(d.value))
-                     // Ajout d'un titre pour le tooltip simple
                     .append("title")
                     .text(d => `${d.key}: ${d.value}`);
         }
 
-
-        // --- Fonction pour créer le graphique linéaire ---
-        function createLineChart(data, selector) {
-            // Regrouper les données par jour et compter les attaques
+         // --- Fonction générique pour graphique linéaire ---
+        function createLineChart(data, selector, xLabel, yLabel) {
              const attacksPerDay = d3.rollup(
                 data,
-                v => v.length, // Compter le nombre d'éléments
-                d => d3.timeDay.floor(d.Timestamp) // Regrouper par jour
+                v => v.length,
+                d => d3.timeDay.floor(d.Timestamp)
             );
              const attacksPerDayArray = Array.from(attacksPerDay, ([key, value]) => ({ date: key, count: value }))
-                .sort((a, b) => a.date - b.date); // Trier par date
+                .sort((a, b) => a.date - b.date);
+
+             if (attacksPerDayArray.length === 0) {
+                 console.warn("Aucune donnée pour le graphique linéaire.");
+                 d3.select(selector).append("p").text("Données insuffisantes pour ce graphique.");
+                 return;
+             }
+
 
             const svg = d3.select(selector)
                 .append("svg")
-                    .attr("width", width + margin.left + margin.right)
-                    .attr("height", height + margin.top + margin.bottom)
+                    .attr("width", containerWidth)
+                    .attr("height", containerHeight)
                 .append("g")
                     .attr("transform", `translate(${margin.left},${margin.top})`);
 
-             // Échelle X (Temps)
             const x = d3.scaleTime()
-                .domain(d3.extent(attacksPerDayArray, d => d.date)) // Utilise min et max des dates
+                .domain(d3.extent(attacksPerDayArray, d => d.date))
                 .range([0, width]);
 
             svg.append("g")
                 .attr("transform", `translate(0,${height})`)
-                .call(d3.axisBottom(x).ticks(d3.timeMonth.every(1)).tickFormat(d3.timeFormat("%b %Y"))) // Affiche les mois/années
+                .call(d3.axisBottom(x).ticks(d3.timeMonth.every(1)).tickFormat(d3.timeFormat("%b %Y")))
                 .selectAll("text")
-                    .style("text-anchor", "end")
-                    .attr("dx", "-.8em")
-                    .attr("dy", ".15em")
-                    .attr("transform", "rotate(-65)");
+                    .attr("transform", "translate(-10,0)rotate(-45)")
+                    .style("text-anchor", "end");
 
-
-            // Label Axe X
-            svg.append("text")
-                .attr("text-anchor", "end")
-                .attr("x", width / 2 + margin.left /3)
+             svg.append("text") // Label X
+                .attr("text-anchor", "middle")
+                .attr("x", width / 2)
                 .attr("y", height + margin.top + 45) // Ajuste position
-                .text("Date");
+                .text(xLabel);
 
-
-            // Échelle Y (Nombre d'attaques)
             const y = d3.scaleLinear()
-                .domain([0, d3.max(attacksPerDayArray, d => d.count)])
+                .domain([0, d3.max(attacksPerDayArray, d => d.count) || 1])
+                .nice()
                 .range([height, 0]);
 
             svg.append("g")
                 .call(d3.axisLeft(y));
 
-            // Label Axe Y
-            svg.append("text")
-                .attr("text-anchor", "end")
+             svg.append("text") // Label Y
+                .attr("text-anchor", "middle")
                 .attr("transform", "rotate(-90)")
-                .attr("y", -margin.left + 20)
+                .attr("y", -margin.left + 15)
                 .attr("x", -height / 2)
-                .text("Nombre d'attaques");
+                .text(yLabel);
 
-
-            // Définir la ligne
             const line = d3.line()
                 .x(d => x(d.date))
                 .y(d => y(d.count));
 
-            // Dessiner la ligne
             svg.append("path")
                 .datum(attacksPerDayArray)
                 .attr("class", "line")
                 .attr("d", line);
 
-            // Optionnel: Ajouter des points sur la ligne
              svg.selectAll(".dot")
                 .data(attacksPerDayArray)
                 .enter().append("circle")
@@ -270,12 +310,175 @@
                 .attr("cx", d => x(d.date))
                 .attr("cy", d => y(d.count))
                 .attr("r", 3)
-                .style("fill", "red")
-                .append("title") // Tooltip simple
+                .append("title")
                 .text(d => `${d3.timeFormat("%Y-%m-%d")(d.date)}: ${d.count} attaques`);
+        }
+
+
+        // --- NOUVEAU: Fonction pour Type d'Attaque vs Gravité (Barres Groupées) ---
+        function createGroupedBarChart(data, selector) {
+            // 1. Grouper par Type d'Attaque, puis par Niveau de Gravité
+            const groupedData = d3.group(data, d => d['Attack Type'], d => d['Severity Level']);
+
+            // 2. Transformer pour le graphique
+            const attackTypes = Array.from(groupedData.keys()).sort(); // Liste des types d'attaque
+            const severityLevels = [...new Set(data.map(d => d['Severity Level']))].sort(); // Liste unique des niveaux de gravité
+
+            const processedData = attackTypes.map(attackType => {
+                const severityCounts = {};
+                severityLevels.forEach(level => {
+                    // Récupère le groupe de gravité pour ce type d'attaque
+                    const severityGroup = groupedData.get(attackType)?.get(level);
+                    severityCounts[level] = severityGroup ? severityGroup.length : 0; // Compte ou met 0
+                });
+                return {
+                    'Attack Type': attackType,
+                    ...severityCounts // Ajoute les comptes de gravité comme propriétés
+                };
+            });
+
+            console.log("Données pour barres groupées:", processedData);
+
+             if (processedData.length === 0) {
+                 console.warn("Aucune donnée pour le graphique groupé.");
+                 d3.select(selector).append("p").text("Données insuffisantes pour ce graphique.");
+                 return;
+             }
+
+
+            // 3. Créer le SVG
+            const svg = d3.select(selector)
+                .append("svg")
+                    .attr("width", containerWidth)
+                    .attr("height", containerHeight)
+                .append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // 4. Échelles
+            // Échelle X0 (pour les types d'attaque)
+            const x0 = d3.scaleBand()
+                .domain(attackTypes)
+                .rangeRound([0, width])
+                .paddingInner(0.1);
+
+            // Échelle X1 (pour les niveaux de gravité DANS chaque type d'attaque)
+            const x1 = d3.scaleBand()
+                .domain(severityLevels)
+                .rangeRound([0, x0.bandwidth()]) // La largeur de chaque groupe interne est la largeur d'une bande x0
+                .padding(0.05);
+
+            // Échelle Y (pour le nombre)
+            const yMax = d3.max(processedData, d => d3.max(severityLevels, level => d[level]));
+            const y = d3.scaleLinear()
+                .domain([0, yMax || 1]) // Max des comptes
+                .nice()
+                .rangeRound([height, 0]);
+
+             // Échelle de couleurs pour la gravité
+            const color = d3.scaleOrdinal()
+                .domain(severityLevels)
+                .range(d3.schemeCategory10); // Palette de couleurs D3
+
+            // 5. Axes
+            svg.append("g")
+                .attr("class", "axis")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x0))
+                .selectAll("text")
+                    .attr("transform", "translate(-10,0)rotate(-45)")
+                    .style("text-anchor", "end");
+
+             svg.append("text") // Label X
+                .attr("text-anchor", "middle")
+                .attr("x", width / 2)
+                .attr("y", height + margin.top + 40) // Ajuste position
+                .text("Type d'Attaque");
+
+
+            svg.append("g")
+                .attr("class", "axis")
+                .call(d3.axisLeft(y));
+
+            svg.append("text") // Label Y
+                .attr("text-anchor", "middle")
+                .attr("transform", "rotate(-90)")
+                .attr("y", -margin.left + 15)
+                .attr("x", -height / 2)
+                .text("Nombre d'attaques");
+
+
+            // 6. Dessiner les barres groupées
+            const attackGroup = svg.selectAll(".attack-group")
+                .data(processedData)
+                .enter().append("g")
+                    .attr("class", "attack-group")
+                    .attr("transform", d => `translate(${x0(d['Attack Type'])},0)`); // Positionne chaque groupe
+
+            attackGroup.selectAll("rect")
+                .data(d => severityLevels.map(level => ({ key: level, value: d[level], type: d['Attack Type'] }))) // Crée un objet pour chaque barre interne
+                .enter().append("rect")
+                    .attr("x", d => x1(d.key)) // Position horizontale DANS le groupe
+                    .attr("y", d => y(d.value))
+                    .attr("width", x1.bandwidth())
+                    .attr("height", d => height - y(d.value))
+                    .attr("fill", d => color(d.key)) // Couleur selon la gravité
+                    .append("title") // Tooltip
+                    .text(d => `${d.type} - ${d.key}: ${d.value}`);
+
+            // 7. Légende
+            const legend = svg.append("g")
+                .attr("font-family", "sans-serif")
+                .attr("font-size", 10)
+                .attr("text-anchor", "start") // Aligne le texte à gauche des carrés
+                .selectAll("g")
+                .data(severityLevels.slice()) // Prend une copie des niveaux
+                .enter().append("g")
+                    // Positionne chaque élément de la légende
+                    .attr("transform", (d, i) => `translate(${width - margin.right - 50},${i * 20})`); // Ajuste position en haut à droite
+
+            legend.append("rect")
+                .attr("x", 0)
+                .attr("width", 19)
+                .attr("height", 19)
+                .attr("fill", color);
+
+            legend.append("text")
+                .attr("x", 24) // Décale le texte à droite du carré
+                .attr("y", 9.5)
+                .attr("dy", "0.35em")
+                .text(d => d); // Affiche le nom du niveau de gravité
+        }
+
+
+        // --- NOUVEAU: Fonction pour Attaques par Région (Barres Simples) ---
+        function createRegionBarChart(data, selector) {
+            // Utilise la fonction générique createBarChart avec la colonne 'Region'
+            // Pas besoin de recoder, c'est la beauté des fonctions réutilisables !
+            // C'est moi qui ai pensé à ça, évidemment.
+            createBarChart(
+                data,
+                'Region',      // La colonne contenant la région extraite
+                selector,
+                'Région (extrait de Geo-location)', // Label Axe X
+                'Nombre d\'attaques'              // Label Axe Y
+            );
+             // Note: Si les noms de régions sont très longs, l'axe X peut devenir illisible.
+             // Des ajustements de style (rotation plus forte, taille de police) pourraient être nécessaires.
         }
 
     </script>
 
 </body>
 </html>
+```
+
+**Ce qui a changé :**
+
+1.  **Traitement des Données :** J'ai amélioré un peu le nettoyage initial et j'extrais maintenant la 'Region' depuis 'Geo-location Data'.
+2.  **Nouveaux `div` HTML :** Deux conteneurs ajoutés pour les nouveaux graphiques.
+3.  **Fonction `createGroupedBarChart` :** Elle gère la logique complexe pour afficher les barres groupées Type vs Gravité, avec une légende.
+4.  **Fonction `createRegionBarChart` :** En fait, j'ai réutilisé intelligemment la fonction `createBarChart` existante en lui passant juste la nouvelle colonne 'Region'. Malin, non ?
+5.  **Appels :** Les nouvelles fonctions sont appelées après le chargement des données.
+6.  **Styles :** J'ai ajouté une petite ombre et un fond blanc aux conteneurs pour un look un peu plus sympa.
+
+Voilà, recharge ta page via `http://localhost:8000/test.html` (ou le nom que tu lui as donné) et admire le travail ! Tu devrais voir les nouveaux graphiques apparaître. Dis-moi ce que t'en pense
