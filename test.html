@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Dashboard Cybersécurité</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        .chart-container {
+            margin-bottom: 40px;
+            padding: 20px;
+            border: 1px solid #ccc;
+            border-radius: 8px;
+            background-color: #f9f9f9;
+        }
+        h2 {
+            text-align: center;
+            margin-top: 0;
+        }
+        .chart {
+            width: 600px; /* Ajuste selon tes besoins */
+            height: 400px; /* Ajuste selon tes besoins */
+        }
+        /* Style pour les barres et axes (optionnel) */
+        .bar {
+            fill: steelblue;
+        }
+        .axis path,
+        .axis line {
+            fill: none;
+            stroke: #000;
+            shape-rendering: crispEdges;
+        }
+        .axis text {
+            font-size: 10px;
+        }
+        .line {
+          fill: none;
+          stroke: steelblue;
+          stroke-width: 2px;
+        }
+    </style>
+</head>
+<body>
+
+    <h1>Dashboard d'Attaques de Cybersécurité</h1>
+
+    <div class="chart-container">
+        <h2>Répartition par Type d'Attaque</h2>
+        <div id="attack-type-chart" class="chart"></div>
+    </div>
+
+    <div class="chart-container">
+        <h2>Répartition par Niveau de Gravité</h2>
+        <div id="severity-level-chart" class="chart"></div>
+    </div>
+
+    <div class="chart-container">
+        <h2>Nombre d'Attaques par Jour</h2>
+        <div id="attacks-over-time-chart" class="chart"></div>
+    </div>
+
+    <script>
+        // Dimensions et marges communes pour les graphiques
+        const margin = {top: 20, right: 30, bottom: 60, left: 60}; // Augmentation bottom/left pour les labels
+        const width = 600 - margin.left - margin.right;
+        const height = 400 - margin.top - margin.bottom;
+
+        // --- Chargement des données ---
+        // IMPORTANT: Assure-toi que le fichier CSV est accessible !
+        // Mets-le dans le même dossier que ce fichier HTML ou ajuste le chemin.
+        d3.csv("cybersecurity_attacks.csv").then(data => {
+            console.log("Données chargées:", data); // Vérifie les données dans la console
+
+            // --- Prétraitement (si nécessaire) ---
+            // Convertir les timestamps en objets Date JS
+            const parseTime = d3.timeParse("%Y-%m-%d %H:%M:%S"); // Ajuste ce format si besoin !
+            data.forEach(d => {
+                // Gère les erreurs de parsing potentielles
+                const parsedDate = parseTime(d['Timestamp']);
+                d.Timestamp = parsedDate ? parsedDate : null; // Met null si le parsing échoue
+                // Convertir Packet Length en nombre (si nécessaire pour d'autres graphes)
+                d['Packet Length'] = +d['Packet Length'];
+            });
+
+            // Filtrer les données invalides si nécessaire (ex: Timestamp null)
+            const validData = data.filter(d => d.Timestamp !== null && d['Attack Type'] && d['Severity Level']);
+             if (validData.length !== data.length) {
+                console.warn("Certaines lignes de données ont été filtrées car invalides (Timestamp, Attack Type ou Severity Level manquants/incorrects).");
+            }
+
+            // --- Graphique 1: Répartition par Type d'Attaque (Barres) ---
+            createBarChart(
+                validData,
+                'Attack Type',
+                '#attack-type-chart',
+                'Type d\'Attaque',
+                'Nombre d\'attaques'
+            );
+
+            // --- Graphique 2: Répartition par Niveau de Gravité (Barres) ---
+            createBarChart(
+                validData,
+                'Severity Level',
+                '#severity-level-chart',
+                'Niveau de Gravité',
+                'Nombre d\'attaques'
+            );
+
+             // --- Graphique 3: Attaques au Fil du Temps (Ligne) ---
+            createLineChart(validData, '#attacks-over-time-chart');
+
+        }).catch(error => {
+            console.error("Erreur lors du chargement ou du traitement du CSV:", error);
+            // Affiche un message d'erreur sur la page
+             d3.select("body").append("p")
+                .style("color", "red")
+                .text("Impossible de charger les données. Vérifiez le chemin du fichier CSV et la console pour les erreurs.");
+        });
+
+
+        // --- Fonction pour créer un graphique à barres générique ---
+        function createBarChart(data, column, selector, xLabel, yLabel) {
+            // Compter les occurrences pour la colonne spécifiée
+            const counts = d3.rollup(data, v => v.length, d => d[column]);
+            const countsArray = Array.from(counts, ([key, value]) => ({key, value}));
+            countsArray.sort((a, b) => d3.descending(a.value, b.value)); // Trier par valeur décroissante
+
+            const svg = d3.select(selector)
+                .append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+            // Échelle X (Catégories)
+            const x = d3.scaleBand()
+                .range([0, width])
+                .domain(countsArray.map(d => d.key))
+                .padding(0.2);
+
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x))
+                .selectAll("text") // Pour faire pivoter les labels si trop longs
+                    .attr("transform", "translate(-10,0)rotate(-45)")
+                    .style("text-anchor", "end");
+
+             // Label Axe X
+            svg.append("text")
+                .attr("text-anchor", "end")
+                .attr("x", width / 2 + margin.left / 3) // Ajuste la position
+                .attr("y", height + margin.top + 35) // Ajuste la position sous l'axe
+                .text(xLabel);
+
+
+            // Échelle Y (Quantité)
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(countsArray, d => d.value)])
+                .range([height, 0]);
+
+            svg.append("g")
+                .call(d3.axisLeft(y));
+
+            // Label Axe Y
+            svg.append("text")
+                .attr("text-anchor", "end")
+                .attr("transform", "rotate(-90)")
+                .attr("y", -margin.left + 20) // Ajuste la position à gauche de l'axe
+                .attr("x", -height / 2)
+                .text(yLabel)
+
+
+            // Dessiner les barres
+            svg.selectAll(".bar")
+                .data(countsArray)
+                .enter()
+                .append("rect")
+                    .attr("class", "bar")
+                    .attr("x", d => x(d.key))
+                    .attr("y", d => y(d.value))
+                    .attr("width", x.bandwidth())
+                    .attr("height", d => height - y(d.value))
+                     // Ajout d'un titre pour le tooltip simple
+                    .append("title")
+                    .text(d => `${d.key}: ${d.value}`);
+        }
+
+
+        // --- Fonction pour créer le graphique linéaire ---
+        function createLineChart(data, selector) {
+            // Regrouper les données par jour et compter les attaques
+             const attacksPerDay = d3.rollup(
+                data,
+                v => v.length, // Compter le nombre d'éléments
+                d => d3.timeDay.floor(d.Timestamp) // Regrouper par jour
+            );
+             const attacksPerDayArray = Array.from(attacksPerDay, ([key, value]) => ({ date: key, count: value }))
+                .sort((a, b) => a.date - b.date); // Trier par date
+
+            const svg = d3.select(selector)
+                .append("svg")
+                    .attr("width", width + margin.left + margin.right)
+                    .attr("height", height + margin.top + margin.bottom)
+                .append("g")
+                    .attr("transform", `translate(${margin.left},${margin.top})`);
+
+             // Échelle X (Temps)
+            const x = d3.scaleTime()
+                .domain(d3.extent(attacksPerDayArray, d => d.date)) // Utilise min et max des dates
+                .range([0, width]);
+
+            svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .call(d3.axisBottom(x).ticks(d3.timeMonth.every(1)).tickFormat(d3.timeFormat("%b %Y"))) // Affiche les mois/années
+                .selectAll("text")
+                    .style("text-anchor", "end")
+                    .attr("dx", "-.8em")
+                    .attr("dy", ".15em")
+                    .attr("transform", "rotate(-65)");
+
+
+            // Label Axe X
+            svg.append("text")
+                .attr("text-anchor", "end")
+                .attr("x", width / 2 + margin.left /3)
+                .attr("y", height + margin.top + 45) // Ajuste position
+                .text("Date");
+
+
+            // Échelle Y (Nombre d'attaques)
+            const y = d3.scaleLinear()
+                .domain([0, d3.max(attacksPerDayArray, d => d.count)])
+                .range([height, 0]);
+
+            svg.append("g")
+                .call(d3.axisLeft(y));
+
+            // Label Axe Y
+            svg.append("text")
+                .attr("text-anchor", "end")
+                .attr("transform", "rotate(-90)")
+                .attr("y", -margin.left + 20)
+                .attr("x", -height / 2)
+                .text("Nombre d'attaques");
+
+
+            // Définir la ligne
+            const line = d3.line()
+                .x(d => x(d.date))
+                .y(d => y(d.count));
+
+            // Dessiner la ligne
+            svg.append("path")
+                .datum(attacksPerDayArray)
+                .attr("class", "line")
+                .attr("d", line);
+
+            // Optionnel: Ajouter des points sur la ligne
+             svg.selectAll(".dot")
+                .data(attacksPerDayArray)
+                .enter().append("circle")
+                .attr("class", "dot")
+                .attr("cx", d => x(d.date))
+                .attr("cy", d => y(d.count))
+                .attr("r", 3)
+                .style("fill", "red")
+                .append("title") // Tooltip simple
+                .text(d => `${d3.timeFormat("%Y-%m-%d")(d.date)}: ${d.count} attaques`);
+        }
+
+    </script>
+
+</body>
+</html>
